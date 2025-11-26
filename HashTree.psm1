@@ -1,18 +1,18 @@
 #region const
 enum FileFormat {psd1; json; xml; csv; }
-enum TreeSection { TA; TAM }
-enum NodeSection { SA; SAM; A; AM; Idx; IdIdxMap; NameIdMap  }
-enum ValueSfx { s; i; dbl; b; }
+enum TreeSection { TA; TAC }
+enum NodeSection { SA; SAC; A; AC; Idx; IdIdxMap; NameIdMap  }
+enum ValueType { s; i; dbl; b; }
 
 # Path delimiter
 Set-Variable -Name 'pdel' -Value ':' -Option ReadOnly
 
 Set-Variable -Name 'TA' -Value "$([TreeSection]::TA)" -Option ReadOnly
-Set-Variable -Name 'TAM' -Value "$([TreeSection]::TAM)" -Option ReadOnly
+Set-Variable -Name 'TAC' -Value "$([TreeSection]::TAC)" -Option ReadOnly
 Set-Variable -Name 'SA' -Value "$([NodeSection]::SA)" -Option ReadOnly
 Set-Variable -Name 'A' -Value "$([NodeSection]::A)" -Option ReadOnly
-Set-Variable -Name 'SAM' -Value "$([NodeSection]::SAM)" -Option ReadOnly
-Set-Variable -Name 'AM' -Value "$([NodeSection]::AM)" -Option ReadOnly
+Set-Variable -Name 'SAC' -Value "$([NodeSection]::SAC)" -Option ReadOnly
+Set-Variable -Name 'AC' -Value "$([NodeSection]::AC)" -Option ReadOnly
 Set-Variable -Name 'Idx' -Value "$([NodeSection]::Idx)" -Option ReadOnly
 Set-Variable -Name 'IdIdxMap' -Value "$([NodeSection]::IdIdxMap)" -Option ReadOnly
 Set-Variable -Name 'NameIdMap' -Value "$([NodeSection]::NameIdMap)" -Option ReadOnly
@@ -62,6 +62,34 @@ Export-ModuleMember -Alias:htp
 
 #endregion
 
+#region attributes
+function Set-AttributeConstraint {
+        [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)] [Alias('N')]
+        [hashtable] $Node,
+
+        [Parameter(Mandatory = $true)] [Alias('S')]
+        [ValidateSet({"${SAM}"},{"${AM}"})]
+        [string] $Section,  
+
+        [Parameter(Mandatory = $true)] [Alias('K')]
+        [string] $Key,
+
+        [Parameter(Mandatory = $true)] [Alias('VT')]
+        [ValidateScript({ @([ValueType]::s, [ValueType]::i, [ValueType]::b, [ValueType]::dbl).Contains([ValueType]::$_) })]
+        [string] $ValueType
+
+    )
+
+    
+
+}
+Set-Alias -Name:sac -Value:Set-AttributeConstraint
+Export-ModuleMember -Function:Set-AttributeConstraint
+Export-ModuleMember -Alias:sac
+#endregion
+
 #region new
 function New-Node {
     [CmdletBinding()]
@@ -75,12 +103,12 @@ function New-Node {
             'Name' = $Name;
             'NextId' = 1;
         };
-        $SAM = @{
+        $SAC = @{
             'Name' = "type=s;";
             'NextId' = "type=i;";
         };
         $A = @{};
-        $AM = @{};
+        $AC = @{};
         $Idx = @();
         $IdIdxMap = @{};
         $NameIdMap = @{}; 
@@ -101,7 +129,7 @@ function New-Tree {
 
     $root = (nn -Name:"Root");
     $root.$SA.Id = "0";
-    $root.$SAM.Id = "type=s;";
+    $root.$SAC.Id = "type=s;";
 
     $t = @{ 
         $TA = @{
@@ -229,10 +257,10 @@ function Get-NodeLinesPsd1 {
         $output.AddRange($lines); 
     }
 
-    $lines = (Get-AttributeLinesPsd1 -attr:($node.$SAM) -offset:($offset + 1));
-    if ($lines.Count -eq 1) { $output.Add("$("`t" * $offset)'${SAM}' = " + $lines[0]); }
+    $lines = (Get-AttributeLinesPsd1 -attr:($node.$SAC) -offset:($offset + 1));
+    if ($lines.Count -eq 1) { $output.Add("$("`t" * $offset)'${SAC}' = " + $lines[0]); }
     else { 
-        $output.Add("$("`t" * $offset)'${SAM}' = ");
+        $output.Add("$("`t" * $offset)'${SAC}' = ");
         $output.AddRange($lines); 
     }
 
@@ -243,10 +271,10 @@ function Get-NodeLinesPsd1 {
         $output.AddRange($lines); 
     }
 
-    $lines = (Get-AttributeLinesPsd1 -attr:($node.$AM) -offset:($offset + 1));
-    if ($lines.Count -eq 1) { $output.Add("$("`t" * $offset)'${AM}' = " + $lines[0]); }
+    $lines = (Get-AttributeLinesPsd1 -attr:($node.$AC) -offset:($offset + 1));
+    if ($lines.Count -eq 1) { $output.Add("$("`t" * $offset)'${AC}' = " + $lines[0]); }
     else { 
-        $output.Add("$("`t" * $offset)'${AM}' = ");
+        $output.Add("$("`t" * $offset)'${AC}' = ");
         $output.AddRange($lines); 
     }
 
@@ -287,10 +315,10 @@ function Get-TreeContentPsd1 {
     $output.Add("`t'${TA}' = ");
     $output.AddRange((Get-AttributeLinesPsd1 -attr:($tree.$TA) -offset:1));
 
-    $output.Add("`t'${TAM}' = ");
-    $output.AddRange((Get-AttributeLinesPsd1 -attr:($tree.$TAM) -offset:1));
+    $output.Add("`t'${TAC}' = ");
+    $output.AddRange((Get-AttributeLinesPsd1 -attr:($tree.$TAC) -offset:1));
 
-    $keys = $tree.Keys | Where-Object { ($_ -ne $TA) -and ($_ -ne $TAM) } | Sort-Object
+    $keys = $tree.Keys | Where-Object { ($_ -ne $TA) -and ($_ -ne $TAC) } | Sort-Object
     foreach ($key in $keys) 
     {
         $output.Add("`t'${key}' =");
