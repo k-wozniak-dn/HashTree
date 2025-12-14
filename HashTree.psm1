@@ -170,7 +170,7 @@ function Set-SysAttribute {
         [object] $Value
     )
 
-    if ($Node -ne $null) {
+    if ($null -ne $Node) {
         if (Test-SysAttribute -N:$Node -K:$Key -V:$Value) {
             $Node.$SA[$Key] = $Value;                 
         }
@@ -240,6 +240,7 @@ function Get-Node {
     }
 
     $patternHtPath = ConvertTo-HtPath -Path:$Path;
+    $out = @();
 
     $Tree.Keys | 
     ForEach-Object {
@@ -252,9 +253,9 @@ function Get-Node {
             $match = (Compare-HtPath -Pattern:$patternHtPath -ToCompare:$nodeByNameHtPath -Recurse:$Recurse);
         }
         
-        if ($match) { Write-Output ($Tree[$_]); }
+        if ($match) { $out += $Tree[$_]; }
     }
-
+    return ,$out;
 }
 Set-Alias -Name:gn -Value:Get-Node
 Export-ModuleMember -Function:Get-Node
@@ -267,7 +268,34 @@ function Add-Node {
         [Parameter(Mandatory = $false)] [string] $ParentPath
     )
 
+    Process {
 
+        $copy = Copy-HashtableDeep -InputObject:$Node;
+        
+        if (-not $ParentPath) {
+            $nodePath = Get-Attribute -N:$copy -K:([SysAttrKey]::Path) -S;
+            if (-not $nodePath) { throw "Undefined path." }
+            $nodeHtPath = ConvertTo-HtPath -Path:$nodePath;
+            if (-not $nodeHtPath.ParentPath) { throw "Undefined parent path." }
+            $ParentPath = $nodeHtPath.ParentPath;
+        }
+
+        $parents = Get-Node -Tree:$Tree -Path:$ParentPath;
+        if (-not $parents) { throw "Parent not found." }
+        if ($parents.Count -gt 1) { throw "Multiple parent not allowed." }
+
+        $parent = $parents | Select-Object -First 1;
+        $nextId = Get-Attribute -N:$parent -K:([SysAttrKey]::NextChildId) -S;
+
+        $newPath = "${ParentPath}${pdel}${nextId}";        
+        $copy | Set-SysAttribute -Key:([SysAttrKey]::Id) -Value:$nextId |
+        Set-SysAttribute -Key:([SysAttrKey]::Path) -Value:$newPath | Out-Null
+        $Tree[$newPath] = $copy;
+
+        $nextId++;
+        Set-SysAttribute -Node:$parent -Key:([SysAttrKey]::NextChildId) -Value:$nextId | Out-Null;
+
+    }
 }
 Set-Alias -Name:an -Value:Add-Node
 Export-ModuleMember -Function:Add-Node
@@ -442,4 +470,4 @@ Export-ModuleMember -Alias:expt
 #endregion
 
 
-Write-Host "DataNode imported"
+Write-Host "HashTree imported"
