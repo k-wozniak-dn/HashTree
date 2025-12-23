@@ -95,7 +95,7 @@ Export-ModuleMember -Alias:cvhtp
 
 <#
     .SYNOPSIS
-    Compares path to test with pattern path. 
+    Compares tested path with pattern path. Returns true if paths match.
 
     .PARAMETER Pattern
     Path in the PsCutomObject format.
@@ -129,6 +129,9 @@ Export-ModuleMember -Alias:cvhtp
 
 #>
 function Compare-HtPath {
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([bool], ParameterSetName="Default")]
+
     param (
         [Parameter(Mandatory = $true)] [PSCustomObject] $Pattern,
         [Parameter(Mandatory = $true)] [PSCustomObject] $Tested,
@@ -159,118 +162,209 @@ Export-ModuleMember -Alias:crhtp
 #endregion
 
 #region node
-function New-Node {
-    [CmdletBinding()]
-    param (
-        [string] $Id,
-
-        [ValidateScript({ -not ($_ -match '^[0-9]') })]
-        [string] $NodeName
-    )
-
-    $nn = @{ 
-        $SA = @{};
-        $A = @{};
-    }
-
-    $nn = Set-SysAttribute -N:$nn -K:"Id" -V:$Id |
-    Set-SysAttribute -K:"NodeName" -V:$NodeName |
-    Set-SysAttribute -K:"NextChildId" -V:1 |
-    Set-SysAttribute -K:"Idx" -V:0 ;
-
-    return $nn;
-}
-
-Set-Alias -Name:nn -Value:New-Node
-Export-ModuleMember -Function:New-Node
-Export-ModuleMember -Alias:nn
 
 function Get-Attribute {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName="Single")]
+    [OutputType([PsCustomObject], ParameterSetName="Single")]
+    [OutputType([PsCustomObject], ParameterSetName="All")]
+
     param (
+        [Parameter(ParameterSetName = 'Single')]
+        [Parameter(ParameterSetName = 'All')]
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [hashtable] $Node,
-        [Parameter(Mandatory = $true)] [string] $Key,
+
+        [Parameter(ParameterSetName = 'Single')]
+        [Parameter(Mandatory = $false)] [string] $Key,
+
+        [Parameter(ParameterSetName = 'All')]
+        [switch] $All,
+
+        [Parameter(ParameterSetName = 'Single')]
+        [Parameter(ParameterSetName = 'All')]
         [switch] $System
     )
 
-    if ($System) { return $Node.$SA[$Key]; }
-    else { return $Node.$A[$Key]; }
+    if ($All) { 
+        if ($System) {
+            foreach ($akey in $Node.$SA.Keys) 
+            { 
+                [PSCustomObject] @{ Key = $akey; Value = $Node.$SA[$akey]; System = $true } | Write-Output ; 
+            }            
+        }
+        else {
+            foreach ($akey in $Node.$A.Keys) 
+            { 
+                [PSCustomObject] @{ Key = $akey; Value = $Node.$A[$akey]; System = $false  } | Write-Output; 
+            }    
+        }
+    }
+    else { 
+        if ($System) {
+            if ($Node.$SA.ContainsKey($Key)) 
+            {
+                [PSCustomObject] @{ Key = $Key; Value = $Node.$SA[$Key]; System = $true  } | Write-Output ;     
+            }
+        }
+        else {
+            if ($Node.$A.ContainsKey($Key)) 
+            {
+                [PSCustomObject] @{ Key = $key; Value = $Node.$A[$key]; System = $false  } | Write-Output ; 
+            }
+        } 
+    }
 }
 Set-Alias -Name:ga -Value:Get-Attribute
 Export-ModuleMember -Function:Get-Attribute
 Export-ModuleMember -Alias:ga
 
-function Test-SysAttribute {
+function Get-AttributeValue {
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([System.Object], ParameterSetName="Default")]
+
     param (
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [hashtable] $Node,
-        [Parameter(Mandatory = $false)] [string] $Key,
 
-        [Parameter(Mandatory = $false)]
-        [ValidateScript({ ($_ -is [string]) -or ($_ -is [int]) -or ($_ -is [double]) -or ($_ -is [bool]) })]
-        [object] $Value,
-
-        [switch] $All 
-    )
-
-    $kvList = @();
-    if ($All) { 
-        $Node.$SA.Keys | 
-        ForEach-Object { [PSCustomObject]@{ Key = $_; Value = $Value ?? (ga -N:$Node -K:$_ -System) } } |
-        ForEach-Object { $kvList += $_ }
-    }
-    elseif ($Key) {
-        $kvList += [PSCustomObject]@{ Key = $Key; Value = $Value ?? (ga -N:$Node -K:$_ -System) }
-    }
-    else {
-        return $true;
-    }
-
-    $kvList | 
-    ForEach-Object { 
-        if (-not $sysAttr.Contains([SysAttrKey]::($_.Key))) {throw "Illegal Sys Key Attribute."} 
-    }
-
-    return $true;
-}
-
-function Set-SysAttribute {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [hashtable] $Node,
         [Parameter(Mandatory = $true)] [string] $Key,
 
-        [Parameter(Mandatory = $true)]
-        [ValidateScript({ ($_ -is [string]) -or ($_ -is [int]) -or ($_ -is [double]) -or ($_ -is [bool]) })]
-        [object] $Value
+        [switch] $System
     )
 
-    if ($null -ne $Node) {
-        if (Test-SysAttribute -N:$Node -K:$Key -V:$Value) {
-            $Node.$SA[$Key] = $Value;                 
+    [PSCustomObject] $attr = $System ? (Get-Attribute -Node:$Node -Key:$Key -System) : (Get-Attribute -Node:$Node -Key:$Key);
+    if ($attr) { return $attr.Value; }
+}
+Set-Alias -Name:gav -Value:Get-AttributeValue
+Export-ModuleMember -Function:Get-AttributeValue
+Export-ModuleMember -Alias:gav
+
+function Test-Attribute {
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([PSCustomObject], ParameterSetName="Default")]
+
+    param (
+        [Parameter(Mandatory = $true)] [hashtable] $Node,
+
+        [Parameter(Mandatory = $false, ValueFromPipeline = $true)] [PSCustomObject] $AttributeInfo
+    )
+
+    Process { 
+        if ( -not (
+                ($AttributeInfo.Value -is [string]) -or 
+                ($AttributeInfo.Value -is [int]) -or 
+                ($AttributeInfo.Value -is [double]) -or 
+                ($AttributeInfo.Value -is [bool]))) { throw "System Attribute value type not allowed." }
+
+        if (-not $AttributeInfo.System) { 
+            $AttributeInfo | Write-Output; 
+            continue; 
         }
-        return $Node;             
+
+        if (-not $sysAttr.Contains([SysAttrKey]::($AttributeInfo.Key))) { throw "System Attribute Key not allowed." } 
+
+        if ([SysAttrKey]::NodeName -eq [SysAttrKey]::($AttributeInfo.Key)) {
+            if ($AttributeInfo.Value -match '^[0-9]') { throw "Incorrect NodeName value." }
+        }
+
+        $AttributeInfo | Write-Output;
     }
 }
+Set-Alias -Name:ta -Value:Test-Attribute
+Export-ModuleMember -Function:Test-Attribute
+Export-ModuleMember -Alias:ta
+
+function New-Attribute {
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([PSCustomObject], ParameterSetName="Default")]
+
+    param (
+        [Parameter(Mandatory = $true)] [string] $Key,
+
+        [Parameter(Mandatory = $true)] [object] $Value,
+
+        [switch] $System
+    )
+
+    return [PSCustomObject]@{ Key = $Key; Value = $Value; System = $System } ; 
+}
+Set-Alias -Name:na -Value:New-Attribute
+Export-ModuleMember -Function:New-Attribute
+Export-ModuleMember -Alias:na
 
 function Set-Attribute {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [hashtable] $Node,
-        [Parameter(Mandatory = $true)] [string] $Key,
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([PSCustomObject], ParameterSetName="Default")]
 
-        [Parameter(Mandatory = $true)]
-        [ValidateScript({ ($_ -is [string]) -or ($_ -is [int]) -or ($_ -is [double]) -or ($_ -is [bool]) })]
-        [object] $Value
+    param (
+        [Parameter(Mandatory = $true)] [hashtable] $Node,
+
+        [Parameter(Mandatory = $false, ValueFromPipeline = $true)] [PSCustomObject] $AttributeInfo,
+
+        [switch] $PassThru
     )
 
-    if ($null -ne $Node) {
-        $Node.$A[$Key] = $Value;
-        return $Node;             
+    Process
+    { 
+        if ($AttributeInfo.System) {
+            $Node.$SA[$AttributeInfo.Key] = $AttributeInfo.Value; 
+        }
+        else {
+            $Node.$A[$AttributeInfo.Key] = $AttributeInfo.Value; 
+        }
+
+        if ($PassThru) { $AttributeInfo | Write-Output; }
     }
 }
 Set-Alias -Name:sa -Value:Set-Attribute
 Export-ModuleMember -Function:Set-Attribute
 Export-ModuleMember -Alias:sa
+
+function Set-AttributeValue {
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([PSCustomObject], ParameterSetName="Default")]
+
+    param (
+        [Parameter(Mandatory = $true)] [hashtable] $Node,
+
+        [Parameter(Mandatory = $true)] [string] $Key,
+
+        [Parameter(Mandatory = $true)] [object] $Value,
+
+        [switch] $System,
+
+        [switch] $PassThru
+    )
+
+    New-Attribute -Key:$Key -Value:$Value -System:$System |
+    Test-Attribute -Node:$Node |
+    Set-Attribute -Node:$Node -PassThru:$PassThru;
+}
+Set-Alias -Name:sav -Value:Set-AttributeValue
+Export-ModuleMember -Function:Set-AttributeValue
+Export-ModuleMember -Alias:sav
+
+function New-Node {
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([hashtable], ParameterSetName="Default")]
+
+    param (
+        [string] $NodeName
+    )
+
+    [hashtable] $nn = @{ 
+        $SA = @{};
+        $A = @{};
+    }
+
+    Set-AttributeValue -Node:$nn -Key:([SysAttrKey]::NodeName) -Value:$NodeName -System ;
+    Set-AttributeValue -Node:$nn -Key:([SysAttrKey]::NextChildId) -Value:1 -System ;
+    Set-AttributeValue -Node:$nn -Key:([SysAttrKey]::Idx) -Value:0 -System ;
+
+    return $nn;
+}
+Set-Alias -Name:nn -Value:New-Node
+Export-ModuleMember -Function:New-Node
+Export-ModuleMember -Alias:nn
+
+
 #endregion
 
 #region tree
