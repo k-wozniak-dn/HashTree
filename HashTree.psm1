@@ -285,12 +285,33 @@ Set-Alias -Name:gav -Value:Get-AttributeValue
 Export-ModuleMember -Function:Get-AttributeValue
 Export-ModuleMember -Alias:gav
 
+<#
+    .SYNOPSIS
+    Validates attribute.
+
+    .PARAMETER Node
+    Used in scenarios when we need to compare with other attributes in the node.
+
+    .PARAMETER AttributeInfo
+    [PSCustomObject] with Key, Value, System.
+
+    .EXAMPLE
+    PS> $node =  nn -NodeName "child-A"
+    PS> ga -N:$node -A -S | Test-Attribute
+
+    Key         Value   System
+    ---         -----   ------
+    NodeName    child-A True
+    Idx         0       True
+    NextChildId 1       True
+    
+#>
 function Test-Attribute {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([PSCustomObject], ParameterSetName="Default")]
 
     param (
-        [Parameter(Mandatory = $true)] [hashtable] $Node,
+        [Parameter(Mandatory = $false)] [hashtable] $Node,
 
         [Parameter(Mandatory = $false, ValueFromPipeline = $true)] [PSCustomObject] $AttributeInfo
     )
@@ -300,7 +321,7 @@ function Test-Attribute {
                 ($AttributeInfo.Value -is [string]) -or 
                 ($AttributeInfo.Value -is [int]) -or 
                 ($AttributeInfo.Value -is [double]) -or 
-                ($AttributeInfo.Value -is [bool]))) { throw "System Attribute value type not allowed." }
+                ($AttributeInfo.Value -is [bool]))) { throw "Attribute value type not allowed." }
 
         if ($AttributeInfo.System) 
         { 
@@ -321,6 +342,26 @@ Set-Alias -Name:ta -Value:Test-Attribute
 Export-ModuleMember -Function:Test-Attribute
 Export-ModuleMember -Alias:ta
 
+<#
+    .SYNOPSIS
+    Creates AttributeInfo object.
+
+    .PARAMETER Key
+
+    .PARAMETER Value
+
+    .PARAMETER System
+    Switch on for system attributes.
+
+    .EXAMPLE
+    PS> na -K:"Price" -V:999.99 | Test-Attribute
+
+    Key         Value   System
+    ---         -----   ------
+    Price       999,99  False
+
+    
+#>
 function New-Attribute {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([PSCustomObject], ParameterSetName="Default")]
@@ -339,6 +380,26 @@ Set-Alias -Name:na -Value:New-Attribute
 Export-ModuleMember -Function:New-Attribute
 Export-ModuleMember -Alias:na
 
+<#
+    .SYNOPSIS
+    Sets node with key and value contained in AttributeInfo object.
+
+    .PARAMETER Node
+
+    .PARAMETER AttributeInfo
+
+    .PARAMETER PassThru
+    Sends AttributeInfo object to output stream.
+
+    .EXAMPLE
+    PS> $node = nn -NodeName "child-A";
+    PS> na -K:"Price" -V:999.99 | sa -Node:$node -PassThru
+
+    Key         Value   System
+    ---         -----   ------
+    Price       999,99  False
+
+#>
 function Set-Attribute {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([PSCustomObject], ParameterSetName="Default")]
@@ -367,6 +428,30 @@ Set-Alias -Name:sa -Value:Set-Attribute
 Export-ModuleMember -Function:Set-Attribute
 Export-ModuleMember -Alias:sa
 
+<#
+    .SYNOPSIS
+    Combines New-Attribute, Test-Attribute and Set-Attribute.
+
+    .PARAMETER Node
+
+    .PARAMETER Key
+
+    .PARAMETER Value
+
+    .PARAMETER System
+
+    .PARAMETER PassThru
+    Sends AttributeInfo object to output stream.
+
+    .EXAMPLE
+    PS> $node = nn -NodeName "child-A";
+    PS> sav -N:$node -K:"Price" -V:999.99 -PassThru
+
+    Key         Value   System
+    ---         -----   ------
+    Price       999,99  False
+
+#>
 function Set-AttributeValue {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([PSCustomObject], ParameterSetName="Default")]
@@ -391,6 +476,23 @@ Set-Alias -Name:sav -Value:Set-AttributeValue
 Export-ModuleMember -Function:Set-AttributeValue
 Export-ModuleMember -Alias:sav
 
+<#
+    .SYNOPSIS
+    Creates new node and sets initial system attributes.
+
+    .PARAMETER NodeName
+
+    .EXAMPLE
+    PS> $node = nn -NodeName "child-A";
+    PS> ga -N:$node -A -S
+
+    Key         Value   System
+    ---         -----   ------
+    NodeName    child-A True
+    Idx         0       True
+    NextChildId 1       True
+
+#>
 function New-Node {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([hashtable], ParameterSetName="Default")]
