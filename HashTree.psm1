@@ -595,7 +595,7 @@ function New-Node {
         $A = @{};
     }
 
-    Set-AttributeValue -Node:$nn -Key:([SysAttrKey]::NodeName) -Value:$NodeName -System ;
+    if ($NodeName) { Set-AttributeValue -Node:$nn -Key:([SysAttrKey]::NodeName) -Value:$NodeName -System ;}
     Set-AttributeValue -Node:$nn -Key:([SysAttrKey]::NextChildId) -Value:1 -System ;
     Set-AttributeValue -Node:$nn -Key:([SysAttrKey]::Idx) -Value:0 -System ;
 
@@ -608,62 +608,153 @@ Export-ModuleMember -Alias:nn
 #endregion
 
 #region tree
-function ConvertTo-ByNameHtPath {
-    [CmdletBinding()]
+
+<#
+    .SYNOPSIS
+    Covverts numeric path to descriptive path.
+    It's used internally by Get-Node command.
+
+    .PARAMETER Tree
+
+    .PARAMETER Path
+    Could be either string or converted to HtPath (PSCustomObject).
+
+    .EXAMPLE
+    PS> $tree = gci .\kw.psd1 | ipt     # importing tree
+    PS> cvdhtp -T:$t -P:"0"             # converting numeric root path to descriptive
+
+    Level       : 1
+    Descriptive : True
+    Parts       : {Root}
+    Id          : Root
+    ParentPath  : 
+    FullPath    : Root
+
+    PS> cvdhtp -T:$t -P:"0:1"           # converting numeric 2-part path to descriptive
+
+    Level       : 2
+    Descriptive : True
+    Parts       : {Root, child-A}
+    Id          : child-A
+    ParentPath  : Root
+    FullPath    : Root:child-A
+
+
+#>
+function ConvertTo-DescriptiveHtPath {
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    [OutputType([PsCustomObject], ParameterSetName="Default")]
+
     param (
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [hashtable] $Tree,
+        [Parameter(Mandatory = $true)] [hashtable] $Tree,
         [Parameter(Mandatory = $true)] [object] $Path
     )
 
-    $htPath = ($Path -is [string] ) ? (ConvertTo-HtPath -Path:$Path) : [PSCustomObject] $Path;
-    if ($htPath.Descriptive -eq $true) { throw "Path must be id type." }
+    [PSCustomObject] $htPath = ($Path -is [string] ) ? (ConvertTo-HtPath -Path:$Path) : $Path;
+    if ($htPath.Descriptive -eq $true) { throw "Path is already descriptive." }
 
-    $byNamePathArray = @();
-    for ($idx = 0 ; $idx -lt $htPath.Parts.Count ; $idx++) {
-        $subArray = $htPath.Parts[0..$idx];
-        $subPath = $subArray -join $pdel;
-        $node = $Tree[$subPath];
-        if ($null -eq $node) { throw "Node not found" }
-        $name = Get-Attribute -N:$node -K:([SysAttrKey]::NodeName) -S;
-        if (-not $name) { $name = Get-Attribute -N:$node -K:([SysAttrKey]::Id) -S; }
-        $byNamePathArray += $name;
+    [string[]] $descriptivePathArray = @();
+    for ($partIdx = 0 ; $partIdx -lt $htPath.Parts.Count ; $partIdx++) {
+        [string[]] $subArray = $htPath.Parts[0..$partIdx];
+        [string] $subPath = $subArray -join $pdel;
+        [hashtable] $node = $Tree[$subPath];
+        if ($null -eq $node) { throw "Node not found." }
+        [string] $name = Get-AttributeValue -N:$node -K:([SysAttrKey]::NodeName) -S;
+        if (-not $name) { [string] $name = Get-AttributeValue -N:$node -K:([SysAttrKey]::Id) -S; }
+        $descriptivePathArray += $name;
     }
 
-    return ConvertTo-HtPath -P:($byNamePathArray -join $pdel) ;
+    return ConvertTo-HtPath -P:($descriptivePathArray -join $pdel) ;
 
 }
-Export-ModuleMember -Function:ConvertTo-ByNameHtPath
+Set-Alias -Name:cvdhtp -Value:ConvertTo-DescriptiveHtPath
+Export-ModuleMember -Function:ConvertTo-DescriptiveHtPath
+Export-ModuleMember -Alias:cvdhtp
 
+<#
+    .SYNOPSIS
+    Get node(s) from a tree using pattern path.
+
+    .PARAMETER Tree
+    Source tree.
+
+    .PARAMETER PatternPath
+    Could be either nomeric as "0:1:7" or descriptive as "Root:Section-A:ImportantNode".
+    Descriptive path parts are constructed from node names.
+    In case node has no name, Id is used instead, as "Root:Section-A:7" (Id = 7 is used for unnamed node).
+    Wildcard are also permitted as "Root:Section-A:*" gets all children of  "Root:Section-A".
+
+    .PARAMETER Recurse
+    Switch, if used, result contains all descendants of selected node(s).
+
+    .EXAMPLE
+    PS> $t = gci .\kw.psd1 | ipt        # importing tree
+    PS> gn -T:$t -P:"Root:child-a:*"    # get all direct children of "Root:child-a" node using descriptive pattern
+
+    Name                           Value
+    ----                           -----
+    A                              {}
+    SA                             {[Path, 0:1:1], [Id, 1], [NodeName, child-A], [NextChildId, 1]…}
+    A                              {}
+    SA                             {[Path, 0:1:2], [Id, 2], [NodeName, child-B], [NextChildId, 1]…}
+    A                              {}
+    SA                             {[Path, 0:1:3], [Id, 3], [NextChildId, 1], [Idx, 0]}
+
+    PS> (gn -T:$t -P:"Root:child-a:*").Count    # checks number of nodes in result collection
+
+    3
+
+    .EXAMPLE
+    PS> $t = gci .\kw.psd1 | ipt        # importing tree
+    PS> gn -T:$t -P:"Root:child-a" -Recurse    # get "Root:child-a" node with all descendants using -Recurse switch
+
+    Name                           Value
+    ----                           -----
+    A                              {}
+    SA                             {[Path, 0:1], [Id, 1], [NodeName, child-A], [NextChildId, 4]…}
+    A                              {}
+    SA                             {[Path, 0:1:1], [Id, 1], [NodeName, child-A], [NextChildId, 1]…}
+    A                              {}
+    SA                             {[Path, 0:1:2], [Id, 2], [NodeName, child-B], [NextChildId, 1]…}
+    A                              {}
+    SA                             {[Path, 0:1:3], [Id, 3], [NextChildId, 1], [Idx, 0]}
+
+#>
 function Get-Node {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [hashtable] $Tree,
-        [Parameter(Mandatory = $false)] [string] $Path,
+        [Parameter(Mandatory = $true)] [hashtable] $Tree,
+        [Parameter(Mandatory = $false)] [string] $PatternPath,
         [switch] $Recurse
     )
 
-    if (-not $Path) {
-        $Path = "*";
+    if (-not $PatternPath) {
+        $PatternPath = "*";
         $Recurse = $true;
     }
 
-    $patternHtPath = ConvertTo-HtPath -Path:$Path;
-    $out = @();
+    [PSCustomObject] $patternHtPath = ConvertTo-HtPath -Path:$PatternPath;
+    [hashtable[]] $nodes = @();
 
-    $Tree.Keys | 
-    ForEach-Object {
-        $nodeHtPath = ConvertTo-htPath -Path:$_;  
+    [string[]] $sortedKeys =  $Tree.Keys | Sort-Object;
+
+    foreach ($nodeKey in $sortedKeys)
+    {
+        [PSCustomObject] $nodeHtPath = ConvertTo-HtPath -Path:$nodeKey;  
         if ($patternHtPath.Descriptive -eq $false) {
-            $match = (Compare-HtPath -Pattern:$patternHtPath -ToCompare:$nodeHtPath -Recurse:$Recurse);
+            [bool] $match = (Compare-HtPath -Pattern:$patternHtPath -Tested:$nodeHtPath -Recurse:$Recurse);
         } 
         elseif ($patternHtPath.Descriptive -eq $true) {
-            $nodeByNameHtPath = ConvertTo-ByNameHtPath -T:$Tree -Path:$nodeHtPath;
-            $match = (Compare-HtPath -Pattern:$patternHtPath -ToCompare:$nodeByNameHtPath -Recurse:$Recurse);
+            [PSCustomObject] $nodeDescriptiveHtPath = ConvertTo-DescriptiveHtPath -T:$Tree -Path:$nodeHtPath;
+            [bool] $match = (Compare-HtPath -Pattern:$patternHtPath -Tested:$nodeDescriptiveHtPath -Recurse:$Recurse);
         }
         
-        if ($match) { $out += $Tree[$_]; }
+        if ($match) { 
+            $nodes += $Tree[$nodeKey] ; 
+        }
     }
-    return ,$out;
+
+    $nodes | Write-Output;
 }
 Set-Alias -Name:gn -Value:Get-Node
 Export-ModuleMember -Function:Get-Node
@@ -757,17 +848,11 @@ Export-ModuleMember -Alias:rmn
 function New-Tree {
     [CmdletBinding()]
     param (
-        [string] $Path
     )
 
-    $root = (nn -Id:"0" -NodeName:"Root" | 
-    Set-SysAttribute -K:"Path" -Value:$Path);
-
-    $t = @{ 
-        '0' = $root;
-    }
-
-    return $t
+    [PSCustomObject] $root = New-Node -NodeName:"Root" ;
+    [hashtable] $tree = @{ '0' = $root }
+    return $tree
 }
 
 Set-Alias -Name:nt -Value:New-Tree
@@ -784,21 +869,21 @@ function Import-Tree {
         [System.IO.FileInfo] $FileInfo
     )
 
-    $ext = $FileInfo.Extension;
+    [string] $ext = $FileInfo.Extension;
     switch ($ext) {
             { $_ -eq ("." + [FileFormat]::psd1) } { 
-                $tree = Import-PowerShellDataFile -Path:($FileInfo.FullName) -SkipLimitCheck ;
+                [hashtable] $tree = Import-PowerShellDataFile -Path:($FileInfo.FullName) -SkipLimitCheck ;
                 break; 
             }
             default { throw "File format '$ext' not supported." }
     }
-    Set-SysAttribute -N:($tree.'0') -K:'Path' -V:($FileInfo.FullName) | Out-Null;
+    # Set-SysAttribute -N:($tree.'0') -K:'Path' -V:($FileInfo.FullName) | Out-Null;
     return $tree;
 }
 
-Set-Alias -Name:impt -Value:Import-Tree
+Set-Alias -Name:ipt -Value:Import-Tree
 Export-ModuleMember -Function:Import-Tree
-Export-ModuleMember -Alias:impt
+Export-ModuleMember -Alias:ipt
 
 function Get-ValuePsd1 {
     param (
