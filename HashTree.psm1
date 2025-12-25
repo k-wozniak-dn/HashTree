@@ -328,7 +328,8 @@ function Test-Attribute {
             if (-not $sysAttr.Contains([SysAttrKey]::($AttributeInfo.Key))) { throw "System Attribute Key not allowed." } 
 
             if ([SysAttrKey]::NodeName -eq [SysAttrKey]::($AttributeInfo.Key)) {
-                if ($AttributeInfo.Value -match '^[0-9]') { throw "Incorrect NodeName value." }
+                if ($AttributeInfo.Value -match '^[0-9]') { throw "Incorrect NodeName value." };
+                if ($AttributeInfo.Value.Contains($pdel)) { throw "Node name can't contain path delimiter." }
             }
         }
         else {
@@ -760,67 +761,152 @@ Set-Alias -Name:gn -Value:Get-Node
 Export-ModuleMember -Function:Get-Node
 Export-ModuleMember -Alias:gn
 
+<#
+    .SYNOPSIS
+    Adds node to the Tree.
+    At least root must exist prior nodes can be added to the tree.
+    Root is automatically created during Tree creation. 
+
+    .PARAMETER Tree
+
+    .PARAMETER Node
+
+    .PARAMETER ParentPath
+    Path to the parent node to which node is added.
+
+    .PARAMETER PassThru
+    Sends added node object to output stream.
+
+    .EXAMPLE
+    PS> $t = gci .\kw.psd1 | ipt        #   tree import
+    PS> $n = nn -NodeName "child-B-1"   # new node creation
+    PS> $n | an -T:$t -Parent:"Root:child-b" -Pass      #   adding node
+
+    Name                           Value
+    ----                           -----
+    A                              {}
+    SA                             {[Path, 0:2:1], [Id, 1], [NodeName, child-B-1], [NextChildId, 1]…}
+
+    PS> gn -T:$t -P:"Root:child-b" -Recurse     #   getting nodes to check new node was added
+
+    Name                           Value
+    ----                           -----
+    A                              {[NextChildId, 2]}
+    SA                             {[Path, 0:2], [Id, 2], [NodeName, child-B], [NextChildId, 1]…}
+    A                              {}
+    SA                             {[Path, 0:2:1], [Id, 1], [NodeName, child-B-1], [NextChildId, 1]…}
+
+#>
 function Add-Node {
     param (
         [Parameter(Mandatory = $true)] [hashtable] $Tree,
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [hashtable] $Node,
-        [Parameter(Mandatory = $false)] [string] $ParentPath
+        [Parameter(Mandatory = $false)] [string] $ParentPath,
+        [switch] $PassThru
     )
 
     Process {
 
-        $copy = Copy-HashtableDeep -InputObject:$Node;
+        [hashtable] $copy = Copy-HashtableDeep -InputObject:$Node;
         
+        #   getting new node's parent; root must exist and can't be added; root is created when tree is created
         if (-not $ParentPath) {
-            $nodePath = Get-Attribute -N:$copy -K:([SysAttrKey]::Path) -S;
+            [string] $nodePath = Get-AttributeValue -N:$copy -K:([SysAttrKey]::Path) -S;
             if (-not $nodePath) { throw "Undefined path." }
-            $nodeHtPath = ConvertTo-HtPath -Path:$nodePath;
-            if (-not $nodeHtPath.ParentPath) { throw "Undefined parent path." }
-            $ParentPath = $nodeHtPath.ParentPath;
+            [PSCustomObject] $nodeHtPath = ConvertTo-HtPath -Path:$nodePath;
+            [string] $ParentPath = $nodeHtPath.ParentPath ?? { throw "Undefined parent path." }
         }
 
-        $parents = Get-Node -Tree:$Tree -Path:$ParentPath;
-        if (-not $parents) { throw "Parent not found." }
-        if ($parents.Count -gt 1) { throw "Multiple parent not allowed." }
+        [hashtable] $parent = Get-Node -Tree:$Tree -PatternPath:$ParentPath;
+        if (-not $parent) { throw "Parent not found." }
 
-        $parent = $parents | Select-Object -First 1;
-
-        $copyName = Get-Attribute -N:$copy -K:([SysAttrKey]::NodeName) -S;
-        $allChilds = Get-Node -Tree:$Tree -Path:("${ParentPath}${pdel}*");
-        $allChilds | ForEach-Object { 
-            $childName = Get-Attribute -N:$_ -K:([SysAttrKey]::NodeName) -S;
-            if ($copyName -eq $childName) { throw "Child with the same name already exists." }
+        #   protect against adding node with the name which already exist 
+        [string] $copyName = Get-AttributeValue -N:$copy -K:([SysAttrKey]::NodeName) -S;
+        [hashtable[]] $allChilds = Get-Node -Tree:$Tree -PatternPath:("${ParentPath}${pdel}*");
+        foreach ( $child in $allChilds)
+        {
+            [string] $childName = Get-AttributeValue -Node:$child -K:([SysAttrKey]::NodeName) -S;
+            if ($copyName -eq $childName) { throw "Child with the same name already exists." }            
         }
 
-        $nextId = Get-Attribute -N:$parent -K:([SysAttrKey]::NextChildId) -S;
-
-        $newPath = "${ParentPath}${pdel}${nextId}";        
-        $copy | Set-SysAttribute -Key:([SysAttrKey]::Id) -Value:$nextId |
-        Set-SysAttribute -Key:([SysAttrKey]::Path) -Value:$newPath | Out-Null
+        #   attaching new node to the tree
+        [int] $nextId = Get-AttributeValue -Node:$parent -Key:([SysAttrKey]::NextChildId) -S;
+        [string] $newPath = "${ParentPath}${pdel}${nextId}";    
+        Set-AttributeValue -Node:$copy -Key:([SysAttrKey]::Id) -Value:$nextId -System;
+        Set-AttributeValue -Node:$copy -Key:([SysAttrKey]::Path) -Value:$newPath -System;
         $Tree[$newPath] = $copy;
 
+        #   increment parent's next id
         $nextId++;
-        Set-SysAttribute -Node:$parent -Key:([SysAttrKey]::NextChildId) -Value:$nextId | Out-Null;
+        Set-AttributeValue -Node:$parent -Key:([SysAttrKey]::NextChildId) -Value:$nextId -System;
 
+        if ($PassThru) { $copy | Write-Output; }
     }
 }
 Set-Alias -Name:an -Value:Add-Node
 Export-ModuleMember -Function:Add-Node
 Export-ModuleMember -Alias:an
 
+<#
+    .SYNOPSIS
+    Removes node(s) from tree. Node to remove can be passed in pipe or by Path.
+    Path may contain wildcards.
+    Removed node's descendats are also removed.
+
+    .PARAMETER Tree
+
+    .PARAMETER Node
+
+    .PARAMETER Path
+
+    .PARAMETER PassThru
+    Pass removed node object(s) to output stream.
+
+    .EXAMPLE
+    PS> $t = gci .\kw.psd1 | ipt   #   import tree
+    PS> rn -T:$t -Path:"0:1" -Pass ;   #   remove node "0:1" (with descendants) and PassThru
+
+    Name                           Value
+    ----                           -----
+    A                              {}
+    SA                             {[Path, 0:1:3], [Id, 3], [NextChildId, 1], [Idx, 0]}
+    A                              {}
+    SA                             {[Path, 0:1:2], [Id, 2], [NodeName, child-B], [NextChildId, 1]…}
+    A                              {}
+    SA                             {[Path, 0:1:1], [Id, 1], [NodeName, child-A], [NextChildId, 1]…}
+    A                              {}
+    SA                             {[Path, 0:1], [Id, 1], [NodeName, child-A], [NextChildId, 4]…}
+
+
+#>
 function Remove-Node {
+    [CmdletBinding(DefaultParameterSetName="Pipe")]
+    [OutputType([hashtable], ParameterSetName="Pipe")]
+    [OutputType([hashtable], ParameterSetName="Key")]
+
     param (
+        [Parameter(ParameterSetName = 'Pipe')]
+        [Parameter(ParameterSetName = 'Key')]
         [Parameter(Mandatory = $true)] [hashtable] $Tree,
+
+        [Parameter(ParameterSetName = 'Pipe')]
         [Parameter(Mandatory = $false, ValueFromPipeline = $true)] [hashtable] $Node,
-        [Parameter(Mandatory = $false)] [string] $Path
+
+        [Parameter(ParameterSetName = 'Key')]
+        [Parameter(Mandatory = $false)] [string] $Path,
+
+        [Parameter(ParameterSetName = 'Pipe')]
+        [Parameter(ParameterSetName = 'Key')]
+        [switch] $PassThru
     )
 
     Begin {
         [string[]] $keys = @(); 
         if ($Path) {
-            $allChilds = Get-Node -Tree:$Tree -Path:$Path -Recurse;
-            $allChilds | ForEach-Object { 
-                $childPath = Get-Attribute -Node:$_ -Key:([SysAttrKey]::Path) -S;
+            $allChilds = Get-Node -Tree:$Tree -PatternPath:$Path -Recurse;
+            foreach ($child in $allChilds) 
+            { 
+                [string] $childPath = Get-AttributeValue -Node:$child -Key:([SysAttrKey]::Path) -S;
                 $keys += $childPath;
             }
         }
@@ -829,21 +915,28 @@ function Remove-Node {
     Process {
         if ($Node) 
         {
-            $nodePath = Get-Attribute -Node:$Node -Key:([SysAttrKey]::Path) -S;
-            $allChilds = Get-Node -Tree:$Tree -Path:$nodePath -Recurse;
-            $allChilds | ForEach-Object { 
-                $childPath = Get-Attribute -Node:$_ -Key:([SysAttrKey]::Path) -S;
+            [string] $nodePath = Get-AttributeValue -Node:$Node -Key:([SysAttrKey]::Path) -S;
+            [hashtable[]] $allChilds = Get-Node -Tree:$Tree -PatternPath:$nodePath -Recurse;
+            foreach ($child in $allChilds) 
+            { 
+                [string] $childPath = Get-AttributeValue -Node:$child -Key:([SysAttrKey]::Path) -S;
                 $keys += $childPath;
-            }            
+            }
         }
     }
     End {
-        $keys | Sort-Object -Descending | ForEach-Object { $Tree.Remove($_); }
+        $keys | 
+        Sort-Object -Descending | 
+        ForEach-Object {
+            [hashtable] $removed = $Tree[$_];
+            $Tree.Remove($_);
+            if ($PassThru) { $removed | Write-Output }
+        }
     }
 }
-Set-Alias -Name:rmn -Value:Remove-Node
+Set-Alias -Name:rn -Value:Remove-Node
 Export-ModuleMember -Function:Remove-Node
-Export-ModuleMember -Alias:rmn
+Export-ModuleMember -Alias:rn
 
 function New-Tree {
     [CmdletBinding()]
