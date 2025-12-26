@@ -38,7 +38,7 @@ function Copy-HashtableDeep {
     Path in the string format.
 
     .EXAMPLE
-    PS> cvhtp -P:"0:section_A:node_X"
+    PS> cvftp -P:"0:section_A:node_X"
 
     Level       : 3
     Descriptive : True
@@ -48,7 +48,7 @@ function Copy-HashtableDeep {
     FullPath    : 0:section_A:node_X
 
     .EXAMPLE
-    PS> "0:4:9" | cvhtp 
+    PS> "0:4:9" | cvftp 
 
     Level       : 3
     Descriptive : False
@@ -58,7 +58,7 @@ function Copy-HashtableDeep {
     FullPath    : 0:4:9
 
 #>
-function ConvertTo-HtPath {
+function ConvertTo-FtPath {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([PSCustomObject], ParameterSetName="Default")]
 
@@ -89,9 +89,9 @@ function ConvertTo-HtPath {
         FullPath = $Path;
     }
 }
-Set-Alias -Name:cvhtp -Value:ConvertTo-htPath
-Export-ModuleMember -Function:ConvertTo-htPath
-Export-ModuleMember -Alias:cvhtp
+Set-Alias -Name:cvftp -Value:ConvertTo-FtPath
+Export-ModuleMember -Function:ConvertTo-FtPath
+Export-ModuleMember -Alias:cvftp
 
 <#
     .SYNOPSIS
@@ -108,27 +108,27 @@ Export-ModuleMember -Alias:cvhtp
 
     .EXAMPLE
     wildcard non-recurse
-    PS> $tp = ( "0:4:9" | cvhtp )
-    PS> $pp = ( "0:4:*" | cvhtp )
-    PS> crhtp -P:$pp -T:$tp 
+    PS> $tp = ( "0:4:9" | cvftp )
+    PS> $pp = ( "0:4:*" | cvftp )
+    PS> crftp -P:$pp -T:$tp 
     True
 
     .EXAMPLE
     wildcard non-recurse
-    PS> $tp = ( "0:4:9" | cvhtp )
-    PS> $pp = ( "0:*" | cvhtp )
-    PS> crhtp -P:$pp -T:$tp 
+    PS> $tp = ( "0:4:9" | cvftp )
+    PS> $pp = ( "0:*" | cvftp )
+    PS> crftp -P:$pp -T:$tp 
     False
 
     .EXAMPLE
     wildcard recurse
-    PS> $tp = ( "0:4:9" | cvhtp )
-    PS> $pp = ( "0:*" | cvhtp )
-    PS> crhtp -P:$pp -T:$tp -R
+    PS> $tp = ( "0:4:9" | cvftp )
+    PS> $pp = ( "0:*" | cvftp )
+    PS> crftp -P:$pp -T:$tp -R
     True
 
 #>
-function Compare-HtPath {
+function Compare-FtPath {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([bool], ParameterSetName="Default")]
 
@@ -138,7 +138,7 @@ function Compare-HtPath {
         [switch] $Recurse
     )
 
-    if ($null -eq $Tested.Level -or $null -eq $Pattern.Level) { throw "HtPath object(s) must have Level property set." }
+    if ($null -eq $Tested.Level -or $null -eq $Pattern.Level) { throw "FtPath object(s) must have Level property set." }
 
     if ($Recurse) {
         # if Recurse, pattern can be shorter or equal length as tested path.
@@ -155,9 +155,9 @@ function Compare-HtPath {
 
     return $true;    
 }
-Set-Alias -Name:crhtp -Value:Compare-htPath
-Export-ModuleMember -Function:Compare-HtPath
-Export-ModuleMember -Alias:crhtp
+Set-Alias -Name:crftp -Value:Compare-FtPath
+Export-ModuleMember -Function:Compare-FtPath
+Export-ModuleMember -Alias:crftp
 
 #endregion
 
@@ -618,11 +618,11 @@ Export-ModuleMember -Alias:nn
     .PARAMETER Tree
 
     .PARAMETER Path
-    Could be either string or converted to HtPath (PSCustomObject).
+    Could be either string or converted to FtPath (PSCustomObject).
 
     .EXAMPLE
     PS> $tree = gci .\kw.psd1 | ipt     # importing tree
-    PS> cvdhtp -T:$t -P:"0"             # converting numeric root path to descriptive
+    PS> cvdftp -T:$t -P:"0"             # converting numeric root path to descriptive
 
     Level       : 1
     Descriptive : True
@@ -631,7 +631,7 @@ Export-ModuleMember -Alias:nn
     ParentPath  : 
     FullPath    : Root
 
-    PS> cvdhtp -T:$t -P:"0:1"           # converting numeric 2-part path to descriptive
+    PS> cvdftp -T:$t -P:"0:1"           # converting numeric 2-part path to descriptive
 
     Level       : 2
     Descriptive : True
@@ -642,7 +642,7 @@ Export-ModuleMember -Alias:nn
 
 
 #>
-function ConvertTo-DescriptiveHtPath {
+function ConvertTo-DescriptiveFtPath {
     [CmdletBinding(DefaultParameterSetName="Default")]
     [OutputType([PsCustomObject], ParameterSetName="Default")]
 
@@ -651,12 +651,12 @@ function ConvertTo-DescriptiveHtPath {
         [Parameter(Mandatory = $true)] [object] $Path
     )
 
-    [PSCustomObject] $htPath = ($Path -is [string] ) ? (ConvertTo-HtPath -Path:$Path) : $Path;
-    if ($htPath.Descriptive -eq $true) { throw "Path is already descriptive." }
+    [PSCustomObject] $FtPath = ($Path -is [string] ) ? (ConvertTo-FtPath -Path:$Path) : $Path;
+    if ($FtPath.Descriptive -eq $true) { throw "Path is already descriptive." }
 
     [string[]] $descriptivePathArray = @();
-    for ($partIdx = 0 ; $partIdx -lt $htPath.Parts.Count ; $partIdx++) {
-        [string[]] $subArray = $htPath.Parts[0..$partIdx];
+    for ($partIdx = 0 ; $partIdx -lt $FtPath.Parts.Count ; $partIdx++) {
+        [string[]] $subArray = $FtPath.Parts[0..$partIdx];
         [string] $subPath = $subArray -join $pdel;
         [hashtable] $node = $Tree[$subPath];
         if ($null -eq $node) { throw "Node not found." }
@@ -665,12 +665,12 @@ function ConvertTo-DescriptiveHtPath {
         $descriptivePathArray += $name;
     }
 
-    return ConvertTo-HtPath -P:($descriptivePathArray -join $pdel) ;
+    return ConvertTo-FtPath -P:($descriptivePathArray -join $pdel) ;
 
 }
-Set-Alias -Name:cvdhtp -Value:ConvertTo-DescriptiveHtPath
-Export-ModuleMember -Function:ConvertTo-DescriptiveHtPath
-Export-ModuleMember -Alias:cvdhtp
+Set-Alias -Name:cvdftp -Value:ConvertTo-DescriptiveFtPath
+Export-ModuleMember -Function:ConvertTo-DescriptiveFtPath
+Export-ModuleMember -Alias:cvdftp
 
 <#
     .SYNOPSIS
@@ -734,20 +734,20 @@ function Get-Node {
         $Recurse = $true;
     }
 
-    [PSCustomObject] $patternHtPath = ConvertTo-HtPath -Path:$PatternPath;
+    [PSCustomObject] $patternFtPath = ConvertTo-FtPath -Path:$PatternPath;
     [hashtable[]] $nodes = @();
 
     [string[]] $sortedKeys =  $Tree.Keys | Sort-Object;
 
     foreach ($nodeKey in $sortedKeys)
     {
-        [PSCustomObject] $nodeHtPath = ConvertTo-HtPath -Path:$nodeKey;  
-        if ($patternHtPath.Descriptive -eq $false) {
-            [bool] $match = (Compare-HtPath -Pattern:$patternHtPath -Tested:$nodeHtPath -Recurse:$Recurse);
+        [PSCustomObject] $nodeFtPath = ConvertTo-FtPath -Path:$nodeKey;  
+        if ($patternFtPath.Descriptive -eq $false) {
+            [bool] $match = (Compare-FtPath -Pattern:$patternFtPath -Tested:$nodeFtPath -Recurse:$Recurse);
         } 
-        elseif ($patternHtPath.Descriptive -eq $true) {
-            [PSCustomObject] $nodeDescriptiveHtPath = ConvertTo-DescriptiveHtPath -T:$Tree -Path:$nodeHtPath;
-            [bool] $match = (Compare-HtPath -Pattern:$patternHtPath -Tested:$nodeDescriptiveHtPath -Recurse:$Recurse);
+        elseif ($patternFtPath.Descriptive -eq $true) {
+            [PSCustomObject] $nodeDescriptiveFtPath = ConvertTo-DescriptiveFtPath -T:$Tree -Path:$nodeFtPath;
+            [bool] $match = (Compare-FtPath -Pattern:$patternFtPath -Tested:$nodeDescriptiveFtPath -Recurse:$Recurse);
         }
         
         if ($match) { 
@@ -813,8 +813,8 @@ function Add-Node {
         if (-not $ParentPath) {
             [string] $nodePath = Get-AttributeValue -N:$copy -K:([SysAttrKey]::Path) -S;
             if (-not $nodePath) { throw "Undefined path." }
-            [PSCustomObject] $nodeHtPath = ConvertTo-HtPath -Path:$nodePath;
-            [string] $ParentPath = $nodeHtPath.ParentPath ?? { throw "Undefined parent path." }
+            [PSCustomObject] $nodeFtPath = ConvertTo-FtPath -Path:$nodePath;
+            [string] $ParentPath = $nodeFtPath.ParentPath ?? { throw "Undefined parent path." }
         }
 
         [hashtable] $parent = Get-Node -Tree:$Tree -PatternPath:$ParentPath;
@@ -882,21 +882,21 @@ Export-ModuleMember -Alias:an
 function Remove-Node {
     [CmdletBinding(DefaultParameterSetName="Pipe")]
     [OutputType([hashtable], ParameterSetName="Pipe")]
-    [OutputType([hashtable], ParameterSetName="Key")]
+    [OutputType([hashtable], ParameterSetName="Path")]
 
     param (
         [Parameter(ParameterSetName = 'Pipe')]
-        [Parameter(ParameterSetName = 'Key')]
+        [Parameter(ParameterSetName = 'Path')]
         [Parameter(Mandatory = $true)] [hashtable] $Tree,
 
         [Parameter(ParameterSetName = 'Pipe')]
         [Parameter(Mandatory = $false, ValueFromPipeline = $true)] [hashtable] $Node,
 
-        [Parameter(ParameterSetName = 'Key')]
+        [Parameter(ParameterSetName = 'Path')]
         [Parameter(Mandatory = $false)] [string] $Path,
 
         [Parameter(ParameterSetName = 'Pipe')]
-        [Parameter(ParameterSetName = 'Key')]
+        [Parameter(ParameterSetName = 'Path')]
         [switch] $PassThru
     )
 
