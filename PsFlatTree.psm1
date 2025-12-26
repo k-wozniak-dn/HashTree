@@ -955,6 +955,20 @@ Export-ModuleMember -Alias:nt
 #endregion
 
 #region export
+
+<#
+    .SYNOPSIS
+    Imports FlatTree stored in a file.
+    Supported formats : psd1.
+
+    .PARAMETER FileInfo
+    Object returned by Get-ChildItem, Get-Item from FileProvider
+
+    .EXAMPLE
+    PS> $tree = gi .\kw.psd1 | iptree ;
+
+
+#>
 function Import-Tree {
     [CmdletBinding()]
     param (
@@ -970,13 +984,15 @@ function Import-Tree {
             }
             default { throw "File format '$ext' not supported." }
     }
-    # Set-SysAttribute -N:($tree.'0') -K:'Path' -V:($FileInfo.FullName) | Out-Null;
+    [hashtable] $root = Get-Node -Tree:$tree -PatternPath:'0';
+    if (-not $root) { throw "Root not found." }
+    Set-AttributeValue -N:$root -K:([SysAttrKey]::Path) -V:($FileInfo.FullName) -System;
     return $tree;
 }
 
-Set-Alias -Name:ipt -Value:Import-Tree
+Set-Alias -Name:iptree -Value:Import-Tree
 Export-ModuleMember -Function:Import-Tree
-Export-ModuleMember -Alias:ipt
+Export-ModuleMember -Alias:iptree
 
 function Get-ValuePsd1 {
     param (
@@ -1022,21 +1038,21 @@ function Get-AttributeLinesPsd1 {
 
 function Get-NodeLinesPsd1 {
     param (
-        [Parameter(Mandatory = $true)] [hashtable] $node,
+        [Parameter(Mandatory = $true)] [hashtable] $Node,
         [Parameter(Mandatory = $false)] [int] $offset = 0
     )
 
     $output = New-Object 'System.Collections.Generic.List[string]';
     $output.Add("$("`t" * $offset)@{");
 
-    $lines = (Get-AttributeLinesPsd1 -attr:($node.$SA) -offset:($offset + 1));
+    $lines = (Get-AttributeLinesPsd1 -attr:($Node.$SA) -offset:($offset + 1));
     if ($lines.Count -eq 1) { $output.Add("$("`t" * $offset)'${SA}' = " + $lines[0]); }
     else { 
         $output.Add("$("`t" * $offset)'${SA}' = ");
         $output.AddRange($lines); 
     }
 
-    $lines = (Get-AttributeLinesPsd1 -attr:($node.$A) -offset:($offset + 1));
+    $lines = (Get-AttributeLinesPsd1 -attr:($Node.$A) -offset:($offset + 1));
     if ($lines.Count -eq 1) { $output.Add("$("`t" * $offset)'${A}' = " + $lines[0]); }
     else { 
         $output.Add("$("`t" * $offset)'${A}' = ");
@@ -1056,11 +1072,11 @@ function Get-TreeContentPsd1 {
     $output = New-Object 'System.Collections.Generic.List[string]';
     $output.Add("@{");
 
-    $keys = $tree.Keys | Sort-Object
+    [string[]] $keys = $tree.Keys | Sort-Object;
     foreach ($key in $keys) 
     {
         $output.Add("`t'${key}' =");
-        $output.AddRange((Get-NodeLinesPsd1 -node:($tree[$key]) -offset:2 ));
+        $output.AddRange((Get-NodeLinesPsd1 -Node:($tree[$key]) -offset:2 ));
     }
 
     $output.Add("};");
@@ -1068,6 +1084,22 @@ function Get-TreeContentPsd1 {
     return $output.ToArray() -join "`n";
 }
 
+<#
+    .SYNOPSIS
+    Exports FlatTree to the file.
+    Supported formats : psd1.
+
+    .PARAMETER Tree
+    Hashtable comtaining FlatTree.
+
+    .PARAMETER Path
+    Path in a FileSystem provider.
+
+    .EXAMPLE
+    PS> $tree = gi .\test.psd1 | iptree ;
+    PS> $tree | eptree -P:"./test-copy.psd1"    #   creating a copy, it's not the same as cp because file path is stored in root node
+
+#>
 function Export-Tree {
     [CmdletBinding()]
     param (
@@ -1078,13 +1110,21 @@ function Export-Tree {
     )
 
     Process {
-        if ( -not $Path) { $Path = (ga -N:($Tree.'0') -K:"Path" -S) }
+        [hashtable] $root = Get-Node -Tree:$Tree -PatternPath:'0';
+
+        if ( -not $Path) { 
+            $Path = (Get-AttributeValue -N:$root -K:([SysAttrKey]::Path) -System) 
+        }
         if (-not $Path) { throw "Path not specified." }
-        $ext = [System.IO.Path]::GetExtension($Path);
+
+        [string] $fullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path);
+        Set-AttributeValue -N:$root -K:([SysAttrKey]::Path) -Value:$fullPath -System
+
+        [string] $ext = [System.IO.Path]::GetExtension($Path);
 
         switch ($ext) {
             { $_ -eq ("." + [FileFormat]::psd1) } { 
-                $content = Get-TreeContentPsd1 -tree:$Tree;
+                [string] $content = Get-TreeContentPsd1 -Tree:$Tree;
                 break; 
             }
             default { throw "File format '$ext' not supported." }
@@ -1095,10 +1135,9 @@ function Export-Tree {
     }
 }
 
-Set-Alias -Name:expt -Value:Export-Tree
+Set-Alias -Name:eptree -Value:Export-Tree
 Export-ModuleMember -Function:Export-Tree
-Export-ModuleMember -Alias:expt
+Export-ModuleMember -Alias:eptree
 #endregion
 
-
-Write-Host "HashTree imported"
+Write-Host "PsFlatTree Module imported."
