@@ -3,7 +3,7 @@
 		@{
 		'SA' = 
 			@{
-				'FilePath' = 'C:\Users\kwozniak1\source\PS\PsFlatTree\test.psd1';
+				'FilePath' = '.\test.psd1';
 				'Id' = 0;
 				'Idx' = 0;
 				'NextChildId' = 4;
